@@ -3,6 +3,7 @@ package rest_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 	"github.com/terra-money/core/testutil/network"
@@ -41,7 +42,7 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	s.cfg = cfg
 	s.network = network.New(s.T(), cfg)
 
-	_, err = s.network.WaitForHeight(2)
+	_, err = s.network.WaitForHeightWithTimeout(17, time.Second*60)
 	s.Require().NoError(err)
 }
 
@@ -90,21 +91,20 @@ func (s *IntegrationTestSuite) TestQueryBurnPoolDeltaFn() {
 	s.Require().Equal(a.String(), b.String())
 }
 
-/*func (s *IntegrationTestSuite) TestQuerySwapFn() {
+func (s *IntegrationTestSuite) TestQuerySwapFn() {
 	val := s.network.Validators[0]
 	resp, err := rest.GetRequest(
-		fmt.Sprintf("%s/market/swap?offer_coin=1000000uluna&ask_denom=usdr&height=1", val.APIAddress),
+		fmt.Sprintf("%s/market/swap?offer_coin=1000000uluna&ask_denom=usdr&height=16", val.APIAddress),
 	)
 	s.Require().NoError(err)
 	bz, err := rest.ParseResponseWithHeight(val.ClientCtx.LegacyAmino, resp)
 	s.Require().NoError(err)
-	s.T().Log(bz)
+
 	a := sdk.Coin{}
-	//b := sdk.NewDec(0)
+	b := sdk.NewCoin("usdr", sdk.NewInt(268650))
 	s.Require().NoError(val.ClientCtx.LegacyAmino.UnmarshalJSON(bz, &a))
-	//s.Require().Equal(a.String(), b.String())
-	s.T().Log(a.String())
-}*/
+	s.Require().Equal(a.String(), b.String())
+}
 
 func TestIntegrationTestSuite(t *testing.T) {
 	suite.Run(t, new(IntegrationTestSuite))

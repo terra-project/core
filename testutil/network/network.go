@@ -47,6 +47,8 @@ import (
 	"github.com/terra-money/core/app"
 	terraappparams "github.com/terra-money/core/app/params"
 	wasmconfig "github.com/terra-money/core/x/wasm/config"
+
+	"github.com/terra-money/core/types/util"
 )
 
 // package-wide network lock to only allow one test network at a time
@@ -100,6 +102,16 @@ type Config struct {
 // testing requirements.
 func DefaultConfig() Config {
 	encCfg := app.MakeEncodingConfig()
+
+	// Required to have terra prefixes on keys. (see: cmd/terrad/root.go)
+	sdkConfig := sdk.GetConfig()
+	sdkConfig.SetCoinType(util.CoinType)
+	sdkConfig.SetFullFundraiserPath(util.FullFundraiserPath)
+	sdkConfig.SetBech32PrefixForAccount(util.Bech32PrefixAccAddr, util.Bech32PrefixAccPub)
+	sdkConfig.SetBech32PrefixForValidator(util.Bech32PrefixValAddr, util.Bech32PrefixValPub)
+	sdkConfig.SetBech32PrefixForConsensusNode(util.Bech32PrefixConsAddr, util.Bech32PrefixConsPub)
+	sdkConfig.SetAddressVerifier(util.AddressVerifier)
+	sdkConfig.Seal()
 
 	return Config{
 		Codec:             encCfg.Marshaler,

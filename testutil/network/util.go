@@ -1,10 +1,14 @@
 package network
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"math/rand"
 	"path/filepath"
 	"time"
 
+	"github.com/spf13/pflag"
 	tmos "github.com/tendermint/tendermint/libs/os"
 	"github.com/tendermint/tendermint/node"
 	"github.com/tendermint/tendermint/p2p"
@@ -14,12 +18,17 @@ import (
 	"github.com/tendermint/tendermint/types"
 	tmtime "github.com/tendermint/tendermint/types/time"
 
+	"github.com/cosmos/cosmos-sdk/client/tx"
 	"github.com/cosmos/cosmos-sdk/server/api"
 	servergrpc "github.com/cosmos/cosmos-sdk/server/grpc"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/genutil"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	core "github.com/terra-money/core/types"
+	oracletypes "github.com/terra-money/core/x/oracle/types"
 )
 
 func startInProcess(cfg Config, val *Validator) error {
@@ -71,6 +80,8 @@ func startInProcess(cfg Config, val *Validator) error {
 		app.RegisterTendermintService(val.ClientCtx)
 	}
 
+	setupOraclePseudoFeeder(cfg, val)
+
 	if val.APIAddress != "" {
 		apiSrv := api.New(val.ClientCtx, logger.With("module", "api-server"))
 		app.RegisterAPIRoutes(apiSrv, val.AppConfig.API)
@@ -120,6 +131,86 @@ func startInProcess(cfg Config, val *Validator) error {
 	}
 
 	return nil
+}
+
+type OraclePseudoFeederInfo struct {
+	params      *oracletypes.QueryParamsResponse
+	lastPrevote int64
+	lastSalt    string
+}
+
+func setupOraclePseudoFeeder(cfg Config, val *Validator) {
+	t := time.NewTicker(500 * time.Millisecond)
+	done := make(chan bool)
+	rand.Seed(time.Now().UnixNano())
+
+	go func() {
+		info := OraclePseudoFeederInfo{
+			lastPrevote: -1,
+			lastSalt:    "",
+		}
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				if !val.tmNode.IsRunning() {
+					done <- true
+				} else if val.tmNode.BlockStore().Height() > 0 {
+					// Grab oracle parameters if not initialized
+					if info.params == nil {
+						queryClient := oracletypes.NewQueryClient(val.ClientCtx)
+						res, _ := queryClient.Params(context.Background(), &oracletypes.QueryParamsRequest{})
+						info.params = res
+					}
+
+					blockHeight := val.tmNode.BlockStore().Height()
+					oracleVotePeriod := info.params.Params.VotePeriod
+					currentVotePeriod := blockHeight / int64(oracleVotePeriod)
+
+					if currentVotePeriod > info.lastPrevote {
+						salt := fmt.Sprintf("%x", rand.Intn(99999))
+						if len(salt) > 4 {
+							salt = salt[len(salt)-4:]
+						}
+
+						var msgs []sdk.Msg
+
+						exchangeRatesStr := fmt.Sprintf("1000.23%s,0.29%s,0.27%s", core.MicroKRWDenom, core.MicroUSDDenom, core.MicroSDRDenom)
+						hash := oracletypes.GetAggregateVoteHash(salt, exchangeRatesStr, val.ValAddress)
+						aggregateExchangeRatePrevoteMsg := oracletypes.NewMsgAggregateExchangeRatePrevote(hash, val.Address, val.ValAddress)
+
+						if info.lastSalt != "" {
+							aggregateExchangeRateVoteMsg :=
+								oracletypes.NewMsgAggregateExchangeRateVote(info.lastSalt, exchangeRatesStr, val.Address, val.ValAddress)
+							msgs = append(msgs, aggregateExchangeRateVoteMsg)
+						}
+
+						msgs = append(msgs, aggregateExchangeRatePrevoteMsg)
+
+						builder := val.ClientCtx.TxConfig.NewTxBuilder()
+						builder.SetMsgs(msgs...)
+						builder.SetGasLimit(100000)
+
+						txFactory := tx.Factory{}
+						txf := tx.NewFactoryCLI(val.ClientCtx, &pflag.FlagSet{})
+						acct, _ := txf.AccountRetriever().GetAccount(val.ClientCtx, val.Address)
+						txFactory = txFactory.
+							WithChainID(cfg.ChainID).
+							WithKeybase(val.ClientCtx.Keyring).
+							WithTxConfig(cfg.TxConfig).
+							WithSequence(acct.GetSequence())
+						_ = tx.Sign(txFactory, val.Moniker, builder, true)
+
+						txBytes, _ := val.ClientCtx.TxConfig.TxEncoder()(builder.GetTx())
+						_, _ = val.ClientCtx.BroadcastTxSync(txBytes)
+						info.lastPrevote = currentVotePeriod
+						info.lastSalt = salt
+					}
+				}
+			}
+		}
+	}()
 }
 
 func collectGenFiles(cfg Config, vals []*Validator, outputDir string) error {
