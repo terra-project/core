@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"math/rand"
 	"path/filepath"
+	"testing"
 	"time"
 
 	"github.com/spf13/pflag"
+	"github.com/stretchr/testify/require"
 	tmos "github.com/tendermint/tendermint/libs/os"
 	"github.com/tendermint/tendermint/node"
 	"github.com/tendermint/tendermint/p2p"
@@ -31,7 +33,7 @@ import (
 	oracletypes "github.com/terra-money/core/x/oracle/types"
 )
 
-func startInProcess(cfg Config, val *Validator) error {
+func startInProcess(t *testing.T, cfg Config, val *Validator) error {
 	logger := val.Ctx.Logger
 	tmCfg := val.Ctx.Config
 	tmCfg.Instrumentation.Prometheus = false
@@ -80,7 +82,7 @@ func startInProcess(cfg Config, val *Validator) error {
 		app.RegisterTendermintService(val.ClientCtx)
 	}
 
-	setupOraclePseudoFeeder(cfg, val)
+	setupOraclePseudoFeeder(t, cfg, val)
 
 	if val.APIAddress != "" {
 		apiSrv := api.New(val.ClientCtx, logger.With("module", "api-server"))
@@ -139,9 +141,10 @@ type OraclePseudoFeederInfo struct {
 	lastSalt    string
 }
 
-func setupOraclePseudoFeeder(cfg Config, val *Validator) {
-	t := time.NewTicker(500 * time.Millisecond)
+func setupOraclePseudoFeeder(t *testing.T, cfg Config, val *Validator) {
+	ti := time.NewTicker(500 * time.Millisecond)
 	done := make(chan bool)
+	val.pseudoOracleFeederControl = &done
 	rand.Seed(time.Now().UnixNano())
 
 	go func() {
@@ -153,14 +156,13 @@ func setupOraclePseudoFeeder(cfg Config, val *Validator) {
 			select {
 			case <-done:
 				return
-			case <-t.C:
-				if !val.tmNode.IsRunning() {
-					done <- true
-				} else if val.tmNode.BlockStore().Height() > 0 {
+			case <-ti.C:
+				if val.tmNode.BlockStore().Height() > 0 {
 					// Grab oracle parameters if not initialized
 					if info.params == nil {
 						queryClient := oracletypes.NewQueryClient(val.ClientCtx)
-						res, _ := queryClient.Params(context.Background(), &oracletypes.QueryParamsRequest{})
+						res, err := queryClient.Params(context.Background(), &oracletypes.QueryParamsRequest{})
+						require.NoError(t, err)
 						info.params = res
 					}
 
@@ -194,16 +196,20 @@ func setupOraclePseudoFeeder(cfg Config, val *Validator) {
 
 						txFactory := tx.Factory{}
 						txf := tx.NewFactoryCLI(val.ClientCtx, &pflag.FlagSet{})
-						acct, _ := txf.AccountRetriever().GetAccount(val.ClientCtx, val.Address)
+						acct, err := txf.AccountRetriever().GetAccount(val.ClientCtx, val.Address)
+						require.NoError(t, err)
 						txFactory = txFactory.
 							WithChainID(cfg.ChainID).
 							WithKeybase(val.ClientCtx.Keyring).
 							WithTxConfig(cfg.TxConfig).
 							WithSequence(acct.GetSequence())
-						_ = tx.Sign(txFactory, val.Moniker, builder, true)
+						err = tx.Sign(txFactory, val.Moniker, builder, true)
+						require.NoError(t, err)
 
-						txBytes, _ := val.ClientCtx.TxConfig.TxEncoder()(builder.GetTx())
-						_, _ = val.ClientCtx.BroadcastTxSync(txBytes)
+						txBytes, err := val.ClientCtx.TxConfig.TxEncoder()(builder.GetTx())
+						require.NoError(t, err)
+						_, err = val.ClientCtx.BroadcastTxSync(txBytes)
+						require.NoError(t, err)
 						info.lastPrevote = currentVotePeriod
 						info.lastSalt = salt
 					}

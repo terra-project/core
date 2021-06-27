@@ -177,6 +177,8 @@ type (
 		api     *api.Server
 		grpc    *grpc.Server
 		grpcWeb *http.Server
+
+		pseudoOracleFeederControl *chan bool
 	}
 )
 
@@ -388,7 +390,7 @@ func New(t *testing.T, cfg Config) *Network {
 
 	t.Log("starting test network...")
 	for _, v := range network.Validators {
-		require.NoError(t, startInProcess(cfg, v))
+		require.NoError(t, startInProcess(t, cfg, v))
 	}
 
 	t.Log("started test network")
@@ -481,6 +483,10 @@ func (n *Network) Cleanup() {
 	n.T.Log("cleaning up test network...")
 
 	for _, v := range n.Validators {
+		if v.pseudoOracleFeederControl != nil {
+			*v.pseudoOracleFeederControl <- true
+		}
+
 		if v.tmNode != nil && v.tmNode.IsRunning() {
 			_ = v.tmNode.Stop()
 		}
