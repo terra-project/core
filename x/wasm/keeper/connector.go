@@ -105,8 +105,7 @@ func (k Keeper) dispatchMessages(ctx sdk.Context, contractAddr sdk.AccAddress, m
 
 // dispatchMessageWithGasLimit does not emit events to prevent duplicate emission
 func (k Keeper) dispatchMessageWithGasLimit(ctx sdk.Context, contractAddr sdk.AccAddress, msg wasmvmtypes.CosmosMsg, gasLimit uint64) (events sdk.Events, data []byte, err error) {
-	limitedMeter := sdk.NewGasMeter(gasLimit)
-	subCtx := ctx.WithGasMeter(limitedMeter)
+	subCtx := ctx.WithGasMeter(sdk.NewGasMeter(gasLimit))
 
 	// catch out of gas panic and just charge the entire gas limit
 	defer func() {
@@ -137,6 +136,10 @@ func (k Keeper) dispatchMessage(ctx sdk.Context, contractAddr sdk.AccAddress, ms
 	sdkMsg, err := k.msgParser.Parse(ctx, contractAddr, msg)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if sdkMsg == nil {
+		return nil, nil, sdkerrors.Wrap(types.ErrInvalidMsg, "failed to parse msg")
 	}
 
 	// Charge tax on result msg
