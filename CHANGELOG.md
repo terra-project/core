@@ -1,9 +1,135 @@
 ## [Unreleased]
 
- * (tendermint) Bump Tendermint version to [v0.34.10](https://github.com/tendermint/tendermint/releases/tag/v0.34.10).
- * (cosmos-sdk) Bump Cosmos SDK version to [v0.43.0](https://github.com/cosmos/cosmos-sdk/releases/tag/v0.43.0).
- * (cosmwasm) Bump CosmWasm version to [v0.14.0](https://github.com/CosmWasm/cosmwasm/release/tag/v0.14.0).
+### Release Notes
+
+- Cosmos side breaking changes: [here](https://docs.cosmos.network/master/migrations/rest.html)
+- Wallet Migration Guide: [here](https://github.com/terra-money/mainnet/wiki/Columbus-4-to-Columbus-5:-Wallet-Migration-Guide)
+- Contract Migration Guide: [here](https://github.com/terra-money/mainnet/wiki/Columbus-4-to-Columbus-5-contract-migration-guide)
+
+#### API Breaking Changes
+
+- [GET] `/auth/accounts/{address}` does not return account coins
+- [POST] `/txs/estimate_fee` request and response format changed
+```
+Request (BaseReq + []sdk.Msg)
+{
+   "base_req":{
+      "from":"terra1wg2mlrxdmnnkkykgqg4znky86nyrtc45q336yv",
+      "memo":"Sent via Terra Station 🚀",
+      "chain_id":"columbus-3",
+      "account_number":"0",
+      "sequence":"1",
+      "gas":"200000",
+      "gas_adjustment":"1.2",
+      "fees":[
+         {
+            "denom":"uluna",
+            "amount":"50"
+         }
+      ],
+      "simulate":false
+   },
+   "msgs":[
+      {
+         "type":"bank/MsgSend",
+         "value":{
+            "from_address":"terra1wg2mlrxdmnnkkykgqg4znky86nyrtc45q336yv",
+            "to_address":"terra14u47f8ufn2agqlpdpnfvcd2782zgnus9nslmfc",
+            "amount":[
+               {
+                  "denom":"ukrw",
+                  "amount":"10000000"
+               }
+            ]
+         }
+      }
+   ]
+}
+
+Response (StdFee)
+{
+  "fee": {
+    "gas": "string",
+    "amount": [
+      {
+        "denom": "uluna",
+        "amount": "50"
+      }
+    ]
+  }
+}
+``` 
+- [GET] `/market/terra_pool_delta` removed, `/market/mint_pool_delta` & `/market/burn_pool_delta` added
+- [POST] `/wasm/codes/{codeID}/migrate` added for code migration
+- [POST] `/wasm/codes/{codeID}` request optionally specify `admin` field to make the contract as migratable
+- [GET] `/wasm/contracts/{contractAddress}` response format changed
+`admin` field replace `migratable` flag
+```
+{
+  "code_id": "string",
+  "address": "terra1wg2mlrxdmnnkkykgqg4znky86nyrtc45q336yv",
+  "creator": "terra1wg2mlrxdmnnkkykgqg4znky86nyrtc45q336yv",
+  "admin": "terra1wg2mlrxdmnnkkykgqg4znky86nyrtc45q336yv",
+  "init_msg": "string"
+}
+```
+
+#### Codec Changes
+- Added messages
+   - `wasm/MsgMigrateCode`
+   - `wasm/MsgUpdateContractAdmin`
+   - `wasm/MsgClearContractAdmin`
+- Removed messages 
+   - `wasm/MsgUpdateContractOwner`
+ 
+#### Param subspace changes
+All terra module params now has camel case param subspace  
+- Market
+   - `poolrecoveryperiod` -> `PoolRecoveryPeriod`
+   - `minstabilityspread` -> `MinStabilitySpread `
+   - +`MintBasePool `
+   - +`BurnBasePool`
+- Oracle
+   - `voteperiod` -> `VotePeriod`
+   - `votethreshold` -> `VoteThreshold`
+   - `rewardband` -> `RewardBand`
+   - `rewarddistributionwindow` -> `RewardDistributionWindow`
+   - `whitelist` -> `Whitelist`
+   - `slashfraction` -> `SlashFraction`
+   - `slashwindow` -> `SlashWindow`
+   - `minvalidperwindow` -> `MinValidPerWindow`
+- Treasury
+   - `taxpolicy` -> `TaxPolicy`
+   - `rewardpolicy` -> `RewardPolicy`
+   - `seigniorageburdentarget` -> `SeigniorageBurdenTarget`
+   - `miningincrement` -> `MiningIncrement`
+   - `windowshort` -> `WindowShort`
+   - `windowlong` -> `WindowLong`
+   - `windowprobation` -> `WindowProbation`
+
+#### Message Changes
+- MsgInstantiateContract
+   - `InitMsg` format changed from `base64` to `json.RawMessage`, so the developers need to pass `object` not base64 encoded string.
+   - `Migratable` removed
+   - `Owner` split into `Sender` and `Admin`. `Admin` is optional field to specify migratable flag and the executor of the migration.
+- MsgExecuteContract
+   - `ExecuteMsg` format changed from `base64` to `json.RawMessage`, so the developers need to pass `object` not base64 encoded string.
+- MsgMigrateContract
+   - `MigrateMsg` format changed from `base64` to `json.RawMessage`, so the developers need to pass `object` not base64 encoded string.
+
+
+### Improvements
+ * [\#507](https://github.com/terra-money/core/pull/507) Bump Cosmos SDK version to [v0.43.0](https://github.com/cosmos/cosmos-sdk/releases/tag/v0.43.0) and Bump Tendermint version to [v0.34.10](https://github.com/tendermint/tendermint/releases/tag/v0.34.10).
+ * [\#509](https://github.com/terra-money/core/pull/509) Bump CosmWasmVM version to [v0.15.0](https://github.com/CosmWasm/cosmwasm/release/tag/v0.15.0).
+ * [\#467](https://github.com/terra-money/core/pull/467) Separate mint and burn swap pool
+ * Burn seigniorage * reward_weight amount
+ * Dividend swap fees to faithful oracles
  * (golang) Bump golang prerequisite from 1.15 to 1.16.
+ 
+
+### Bug Fixes
+ * [\#497](https://github.com/terra-money/core/pull/497) Return BASE/QUOTE exchange rate
+ * [\#502](https://github.com/terra-money/core/pull/502) Limit wasm max gas with param
  
 ## 0.4.0
 
